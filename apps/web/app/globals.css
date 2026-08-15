@@ -1,0 +1,918 @@
+/*
+ * The design system: primitives, palette, and every rule the app paints with.
+ *
+ * The identity is "ink on paper, one cold light". A chat is *read*, for hours at
+ * a time, by somebody who is not looking at it directly most of that time. The
+ * brief's own note is the design brief: the type scale and the line length matter
+ * more here than the accent does. So the canvas is a warm paper (#f4f1e8), the
+ * message column is capped at a reading measure rather than filling the window,
+ * and the accent is spent on exactly two things, unread state and mentions.
+ *
+ * The accent is a cold cyan-azure (#0d6b85) and that choice is load-bearing, not
+ * taste. Presence already spends a green, an amber and a grey; an accent drawn
+ * from that range would be read as a presence dot the first time a mention marker
+ * appeared beside a roster row. `lib/identity.test.ts` asserts the accent never
+ * equals a status colour, in both schemes, so the separation survives a redesign.
+ *
+ * Rules for editing this file:
+ *
+ *   - never hardcode a colour, size or duration in a rule. Every one is a token
+ *     below, so `lib/contrast.test.ts` can measure it. That test parses THIS FILE
+ *     rather than a copy of the palette, which is the only version of the check
+ *     that cannot pass against colours the app no longer ships;
+ *   - the light palette is declared on bare `:root` and the dark block overrides a
+ *     SUBSET of it. Never give a colour its only definition inside the media
+ *     query: the "system" setting stamps nothing on the root element, so a token
+ *     that exists only in the dark block resolves to nothing in light mode, and an
+ *     undeclared custom property inside `calc()` invalidates the whole
+ *     declaration rather than falling back. `lib/tokens.test.ts` fails on it;
+ *   - state is never carried by colour alone, and here that is measured rather
+ *     than claimed. In light mode `--online` and `--offline` sit at a 1.00:1
+ *     contrast ratio, which is to say identical relative luminance: to a reader
+ *     with deuteranopia, or to anyone on a greyscale display, they are the same
+ *     pixel. Every one of the six status pairs separates by under 1.5:1 in
+ *     greyscale in one scheme or the other. So presence ships a glyph whose SHAPE
+ *     differs and a word from `@chat/shared`'s `presenceWord`, unread is a count,
+ *     and a mention is a marker plus a label. Colour is the third channel, never
+ *     the first. `lib/contrast.test.ts` asserts the greyscale collapse, so the
+ *     justification for those words is a number and not a paragraph;
+ *   - `--border` outlines controls and boundaries and clears 3:1 on both surfaces
+ *     (WCAG 1.4.11). `--rule` is a hairline separator INSIDE a surface, where
+ *     nothing is distinguished by it, and is deliberately not asserted.
+ *
+ * Fonts (Literata / Figtree / Azeret Mono) are wired in app/layout.tsx.
+ */
+
+/* ==========================================================================
+   Primitives, identical in both colour schemes, and the LIGHT palette
+   ========================================================================== */
+
+:root {
+  /* Spacing, 4px base. Every padding, margin and gap comes from here, so a
+     redesign changes nine numbers rather than four hundred. */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --s-16: 64px;
+
+  /* Type scale. Larger at the base than an operator tool: 16px is the smallest
+     size a body of message prose can be set at without the reader leaning in,
+     and this app is a body of message prose. UI chrome drops to 14px, and 12px
+     is reserved for the timestamp, which is glanced at and never read. */
+  --t-xs: 12px;
+  --t-sm: 14px;
+  --t-base: 16px;
+  --t-md: 18px;
+  --t-lg: 22px;
+  --t-xl: 28px;
+  --t-2xl: 36px;
+
+  /* 1.6 on prose, not 1.5. An extra tenth of leading is the cheapest thing that
+     makes an hour of reading cost less, and a message list is read for hours. */
+  --lh-tight: 1.2;
+  --lh-snug: 1.35;
+  --lh-prose: 1.6;
+
+  /* 10px. Soft enough to read as speech rather than as a spreadsheet cell, flat
+     enough that a hundred stacked rows do not look like a bag of pills. */
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-pill: 999px;
+
+  /* 64ch on the message column. Past roughly 75 characters the eye loses the
+     start of the next line on the return sweep, and this is the one app in the
+     portfolio where that happens a thousand times a session. */
+  --measure: 64ch;
+  --sidebar-width: 268px;
+
+  --shadow-panel: 0 1px 2px rgb(27 26 21 / 0.06);
+  --shadow-lift: 0 8px 24px rgb(27 26 21 / 0.12);
+
+  --dur-fast: 120ms;
+  --dur: 180ms;
+  --ease: cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* --- Light palette ------------------------------------------------------
+     Every value below is from docs/SPECS.md section 6.1 and every pair is
+     measured in lib/contrast.test.ts. Do not nudge one by eye. */
+  --bg: #f4f1e8;
+  --surface: #fffefa;
+  --text: #1b1a15;
+  --muted: #57544a;
+  --accent: #0d6b85;
+  --accent-ink: #ffffff;
+  --accent-soft: #dceef4;
+
+  /* Presence. Rendered beside the word `presenceWord` produced, never alone. */
+  --online: #1f7a3d;
+  --away: #8a5a00;
+  --offline: #6b6b66;
+
+  /* Non-text UI. `--border` is asserted at 3:1 on both surfaces; `--rule` is a
+     hairline nothing is distinguished by, so it is not. */
+  --border: #7d7a6e;
+  --rule: #dedac9;
+
+  /* Tells the browser to paint its own furniture (scrollbars, form controls,
+     the mobile address bar) in this scheme. Without it a dark page keeps a
+     white scrollbar, which is the one part of the page CSS cannot reach. */
+  color-scheme: light;
+}
+
+/* ==========================================================================
+   Dark scheme: an OVERRIDE SUBSET of the block above, never a second palette
+   ========================================================================== */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15191c;
+    --surface: #1e2327;
+    --text: #e8eaec;
+    --muted: #9ba3a9;
+    --accent: #63c9e6;
+    --accent-ink: #0a1417;
+    --accent-soft: #12303a;
+
+    --online: #4ec97a;
+    --away: #e0a93c;
+    --offline: #8b8f92;
+
+    --border: #6f767b;
+    --rule: #2c3237;
+
+    --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-lift: 0 8px 24px rgb(0 0 0 / 0.5);
+
+    color-scheme: dark;
+  }
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  /* Not `smooth` unconditionally: a reader who has asked for less motion gets a
+     jump instead, and the reduced-motion block below cannot undo a smooth scroll
+     that has already been declared here without repeating the property. */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+  font-size: var(--t-sm);
+  line-height: var(--lh-snug);
+  /* Grayscale antialiasing is deliberately NOT set. It thins light-on-dark text,
+     and this app ships a dark scheme that people read for hours. */
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-family: var(--font-prose), ui-serif, Georgia, serif;
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+
+p {
+  margin: 0;
+}
+
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: var(--accent);
+  /* Underlined, not colour-only. A link distinguished from body text by hue
+     alone fails WCAG 1.4.1 the moment the reader cannot separate the two hues,
+     and `--accent` against `--text` is exactly such a pair. */
+  text-underline-offset: 0.2em;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* One focus style for everything focusable, declared once. A component that
+   sets its own is a component whose focus ring disappears the day somebody
+   changes the canvas under it. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+code,
+time,
+.mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--t-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Not `animation: none`: a spinner reduced to nothing is a control with no
+     state at all. Near-instant keeps the end state and removes the travel. */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ==========================================================================
+   Layout primitives
+   ========================================================================== */
+
+.skip-link {
+  position: absolute;
+  left: var(--s-2);
+  top: calc(var(--s-2) * -8);
+  z-index: 10;
+  padding: var(--s-2) var(--s-4);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  text-decoration: none;
+  transition: top var(--dur-fast) var(--ease);
+}
+
+.skip-link:focus {
+  /* Moved rather than revealed. `display: none` until focus takes it out of the
+     tab order entirely, so the escape hatch cannot be reached by the keyboard
+     users it exists for. */
+  top: var(--s-2);
+}
+
+/* Available to screen readers, invisible on screen. Clip-based rather than
+   `display: none`, which removes the text from the accessibility tree too. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.page {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: var(--s-12) var(--s-5) var(--s-16);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+}
+
+.panel {
+  padding: var(--s-6);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-panel);
+}
+
+.panel-title {
+  font-size: var(--t-md);
+  margin-bottom: var(--s-4);
+}
+
+/* ==========================================================================
+   Landing
+   ========================================================================== */
+
+.eyebrow {
+  margin-bottom: var(--s-3);
+  color: var(--muted);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--t-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.landing-title {
+  font-size: var(--t-2xl);
+  max-width: 18ch;
+}
+
+.lede {
+  max-width: var(--measure);
+  margin-top: var(--s-4);
+  font-family: var(--font-prose), ui-serif, Georgia, serif;
+  font-size: var(--t-base);
+  line-height: var(--lh-prose);
+  color: var(--text);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  margin-top: var(--s-6);
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  /* 44px tall at this padding and font size, which is the WCAG 2.2 target-size
+     minimum. A 32px button is fine with a mouse and a coin toss with a thumb. */
+  min-height: 44px;
+  padding: 0 var(--s-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
+}
+
+.button-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.button-primary:hover {
+  /* No colour change on hover: any second accent shade would need its own
+     contrast assertion against `--accent-ink`, and hover is not a state a
+     keyboard or screen-reader user gets at all. Depth instead. */
+  box-shadow: var(--shadow-lift);
+}
+
+.button-quiet:hover {
+  background: var(--accent-soft);
+}
+
+.feature-list {
+  display: grid;
+  gap: var(--s-5);
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+
+.feature-title {
+  margin-bottom: var(--s-2);
+  font-size: var(--t-sm);
+  font-family: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.01em;
+}
+
+.feature-body {
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: var(--lh-snug);
+  max-width: 40ch;
+}
+
+/* ==========================================================================
+   Presence: a glyph, a word, and a dot that is decoration
+   ========================================================================== */
+
+/* A wrapping row, not a column.
+   The brief's own note is that a chat is read for hours, so vertical space
+   belongs to the conversation. A column roster of four people took roughly half
+   a 720px viewport and pushed the messages into a strip; wrapped, the same four
+   fit on one line and the conversation gets the room back. It is still a list, so
+   a screen reader still hears "list, 4 items". */
+.roster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-4);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.roster-row {
+  display: flex;
+  align-items: baseline;
+  /* `--s-1`, deliberately tight: the name and its state are one unit, and a wide
+     gap between them reads as two separate columns once the rows wrap. */
+  gap: var(--s-1);
+  padding: 0;
+  /* No bottom rule. A separator per person made sense in a column; in a wrapping
+     row it draws a line under half a line of text. */
+  border-bottom: none;
+}
+
+.roster-name {
+  font-size: var(--t-sm);
+  font-weight: 500;
+}
+
+.presence-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-xs);
+  /* The word, in the reader's UI face at a readable size. It is the primary
+     channel: `--text` on `--surface` at 17.27:1 in light and 13.14:1 in dark,
+     which is a number the colour of the dot beside it never has to reach. */
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.presence-glyph {
+  /* Colour is applied here and nowhere else, and the glyph is aria-hidden, so
+     the colour carries no information a reader can lose. The three glyphs are
+     three SHAPES (filled, hollow, dash) from `presenceGlyph` in @chat/shared. */
+  font-size: var(--t-sm);
+  line-height: 1;
+}
+
+.presence-chip[data-state='online'] .presence-glyph {
+  color: var(--online);
+}
+
+.presence-chip[data-state='away'] .presence-glyph {
+  color: var(--away);
+}
+
+.presence-chip[data-state='offline'] .presence-glyph {
+  color: var(--offline);
+}
+
+.presence-word {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* ==========================================================================
+   Unread and mentions: the only two things the accent is spent on
+   ========================================================================== */
+
+.unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 var(--s-1);
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--t-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.mention-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 0 var(--s-2);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  /* `--accent` on `--accent-soft` is asserted at text weight, not at 3:1: the
+     marker carries the word "Mention", and a marker whose label cannot be read
+     is a coloured rectangle. */
+  color: var(--accent);
+  font-size: var(--t-xs);
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   /status
+   ========================================================================== */
+
+.status-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-sm);
+}
+
+.status-table th,
+.status-table td {
+  padding: var(--s-3) var(--s-3) var(--s-3) 0;
+  text-align: left;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+
+/* `thead th`, not `th`. The table also carries a row header per row (`<th
+   scope="row">` on the dependency name), which is what lets a screen reader say
+   "Postgres, Reading, Not wired" instead of reading a bare cell. Styling every
+   `th` as a column header would set that name in 12px uppercase muted, which is
+   the treatment for a label nobody reads and the opposite of what a row header
+   is for. */
+.status-table thead th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: var(--t-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.status-table tbody th {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 2px var(--s-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  font-size: var(--t-xs);
+  font-weight: 600;
+  /* The word inside is the state. There is no `.pill-ok` in green and no
+     `.pill-down` in red that differ by hue alone: the same rule that governs
+     presence governs this table, because it is read in exactly the same glance. */
+  white-space: nowrap;
+}
+
+.status-note {
+  max-width: var(--measure);
+  margin-top: var(--s-5);
+  color: var(--muted);
+  font-size: var(--t-sm);
+  line-height: var(--lh-snug);
+}
+
+.endpoint {
+  color: var(--muted);
+}
+
+/* ==========================================================================
+   The application shell
+   ========================================================================== */
+
+.shell {
+  /* `height`, not `min-height`, and `overflow: hidden` beside it.
+     With `min-height` the grid rows are free to exceed the viewport, so the
+     document scrolls instead of the message list, and the header, the roster and
+     the composer all scroll away with it. A chat is the one layout where that is
+     unarguably wrong: the composer has to stay where the hands are. This is what
+     makes `.messages` the scroll container rather than `<body>`. */
+  height: 100dvh;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--bg);
+}
+
+.shell-header {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+}
+
+.shell-brand {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.shell-main {
+  padding: var(--s-4);
+  /* `min-height: 0` on a grid child is what lets the conversation below scroll
+     inside it. Without it the row sizes to its content and the whole page
+     scrolls instead, which puts the composer off-screen on a long channel. */
+  min-height: 0;
+}
+
+.nav {
+  margin-inline-end: auto;
+}
+
+.nav-list {
+  display: flex;
+  gap: var(--s-3);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nav-link {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: var(--t-sm);
+  padding: var(--s-1) var(--s-2);
+  border-radius: var(--radius-sm);
+}
+
+.nav-link:hover {
+  color: var(--text);
+}
+
+/* The current page is marked with a rule as well as a colour. `aria-current` is
+   what tells a screen reader; this is the visual half, and it is a border rather
+   than a tint so it survives greyscale. */
+.nav-link[aria-current='page'] {
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* ==========================================================================
+   The channel list
+   ========================================================================== */
+
+.channel-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-1);
+  max-width: var(--sidebar-width);
+}
+
+.channel-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.channel-link {
+  color: var(--text);
+  text-decoration: none;
+  flex: 1 1 auto;
+}
+
+.channel-link:hover {
+  text-decoration: underline;
+}
+
+/* ==========================================================================
+   The conversation
+   ========================================================================== */
+
+.conversation {
+  display: grid;
+  /* header · connection · notice · messages · typing · composer.
+     Only the message row grows; everything else is sized by its content, which is
+     what keeps the composer pinned to the bottom of the viewport. */
+  grid-template-rows: auto auto auto 1fr auto auto;
+  gap: var(--s-2);
+  height: 100%;
+  /* Without this the `1fr` row sizes to its content rather than to the space
+     left over, and the overflow moves back up to the page. It is the same
+     `min-height: 0` the shell needs, one level down: a grid item's default
+     `min-height: auto` refuses to shrink below its content. */
+  min-height: 0;
+}
+
+.conversation-header {
+  display: grid;
+  gap: var(--s-1);
+}
+
+.conversation-title {
+  font-family: var(--font-prose);
+  font-size: var(--t-xl);
+  line-height: var(--lh-tight);
+  margin: 0;
+}
+
+.conversation-topic {
+  color: var(--muted);
+  margin: 0;
+  font-size: var(--t-sm);
+}
+
+.connection {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--muted);
+}
+
+/* The state is the word, not the colour. `data-state` drives a dot beside it for
+   readers who scan rather than read, and the word is what carries the meaning. */
+.connection[data-state='connected']::before {
+  content: '\25CF\00a0';
+  color: var(--online);
+}
+
+.connection[data-state='disconnected']::before {
+  content: '\25CB\00a0';
+  color: var(--away);
+}
+
+.notice {
+  background: var(--accent-soft);
+  color: var(--text);
+  border-inline-start: 3px solid var(--accent);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--radius-sm);
+  margin: 0;
+}
+
+.messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-1);
+  /* The scrollable region, and it is the reason `.shell-main` sets
+     `min-height: 0`. A conversation is read for hours; the composer must stay
+     where the hands are. */
+  overflow-y: auto;
+  min-height: 0;
+  /* Focusable, so a keyboard reader can scroll it. A scrollable region with no
+     way to reach it from the keyboard is a WCAG 2.1.1 failure, and it is the one
+     Firefox's axe run reports and Chromium's does not. */
+  scrollbar-gutter: stable;
+}
+
+.message {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  gap: var(--s-2);
+  align-items: baseline;
+  padding: var(--s-1) var(--s-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-prose);
+  font-size: var(--t-base);
+  line-height: var(--lh-prose);
+  max-width: var(--measure);
+}
+
+.message-author {
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+.message-time {
+  font-size: var(--t-xs);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.message-body {
+  overflow-wrap: anywhere;
+}
+
+/* A word, never a tint. "edited", "Sending", "Failed" all read the same in
+   greyscale as in colour, which is the rule the presence chip follows too. */
+.message-state {
+  font-family: var(--font-ui);
+  font-size: var(--t-xs);
+  color: var(--muted);
+  text-transform: lowercase;
+}
+
+.message[data-deleted='true'] .message-body {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.message-pending .message-body {
+  color: var(--muted);
+}
+
+.message-pending[data-failed='true'] .message-state {
+  color: var(--away);
+  font-weight: 600;
+}
+
+/* A labelled rule, not a tinted background: the label is what says which day it
+   is, and a background tint says nothing to anybody. */
+.day-divider,
+.unread-divider {
+  font-family: var(--font-ui);
+  font-size: var(--t-xs);
+  color: var(--muted);
+  text-align: center;
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--rule);
+}
+
+.unread-divider {
+  color: var(--accent);
+  border-top-color: var(--accent);
+  font-weight: 600;
+}
+
+.typing {
+  font-family: var(--font-ui);
+  font-size: var(--t-xs);
+  color: var(--muted);
+  /* Reserved whether or not anybody is typing. Without the fixed line the whole
+     conversation jumps by one line every time somebody starts and stops, which is
+     the most distracting thing a chat can do to a reader. */
+  min-height: 1.2em;
+  margin: 0;
+}
+
+.composer {
+  display: flex;
+  gap: var(--s-2);
+  padding-top: var(--s-2);
+  border-top: 1px solid var(--rule);
+}
+
+.composer-input {
+  flex: 1 1 auto;
+  font: inherit;
+  font-family: var(--font-ui);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.composer-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ==========================================================================
+   Forms
+   ========================================================================== */
+
+.field {
+  display: grid;
+  gap: var(--s-1);
+}
+
+.field-label {
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+.field-input {
+  font: inherit;
+  font-family: var(--font-ui);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.field-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.field-hint {
+  font-size: var(--t-xs);
+  color: var(--muted);
+}
+
+/* The scroll sentinel. Zero height, inside the list so `scrollIntoView` moves the
+   conversation rather than the page, and `aria-hidden` because it is a scroll
+   anchor rather than a list item anybody should hear announced. */
+.scroll-sentinel {
+  height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The conversation is focusable (see the note in components/conversation.tsx), so
+   it needs a visible focus ring like any other stop in the tab order. Without
+   this the element is reachable and gives no sign that it has been reached, which
+   trades one accessibility failure for another. */
+.messages:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

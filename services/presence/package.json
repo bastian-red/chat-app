@@ -1,0 +1,30 @@
+{
+  "name": "@chat/presence",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@chat/shared": "workspace:*",
+    "ioredis": "^5.4.2"
+  },
+  "devDependencies": {
+    "@chat/config": "workspace:*",
+    "@types/node": "^20.17.6",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

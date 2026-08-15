@@ -1,0 +1,71 @@
+# syntax=docker/dockerfile:1.7
+#
+# Multi-stage build for @chat/realtime -- the Socket.io gateway.
+#
+# Build from the REPO ROOT:
+#   docker build -f infra/Dockerfile.realtime -t chat-realtime .
+#
+# Structurally identical to infra/Dockerfile.api and deliberately kept as its own
+# file rather than folded into that one with a build ARG. The two processes are
+# separate deploy units: the gateway is the one that scales horizontally (several
+# replicas behind the Redis adapter, which is what infra/docker-compose.yml's
+# `realtime-2` demonstrates and scripts/integration.sh proves), and the REST API
+# is the one that does not. A shared Dockerfile would make "scale the gateway"
+# mean rebuilding both.
+
+FROM node:20-bookworm-slim AS base
+# Prisma's query engine dynamically links against libssl. The gateway holds a
+# Prisma client of its own -- it calls services/messaging directly rather than
+# forwarding to the API, so a send costs one hop instead of two -- which means it
+# needs the same OS packages the API stage does.
+RUN apt-get update -qq \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+WORKDIR /repo
+
+# --- fetch -----------------------------------------------------------------
+FROM base AS fetch
+COPY pnpm-lock.yaml pnpm-workspace.yaml ./
+# --ignore-scripts: see infra/Dockerfile.api for the ENOENT this avoids.
+RUN pnpm fetch --ignore-scripts
+
+# --- build -----------------------------------------------------------------
+FROM fetch AS build
+COPY . .
+RUN pnpm install --frozen-lockfile --offline --ignore-scripts
+RUN pnpm --filter @chat/db run generate
+RUN pnpm exec turbo run build --filter=@chat/realtime...
+
+# --- prod-deps -------------------------------------------------------------
+FROM build AS prod-deps
+RUN pnpm --filter @chat/realtime deploy --prod /prod/realtime
+RUN test -f /prod/realtime/dist/main.js || \
+  (echo "prod-deps: /prod/realtime/dist/main.js is missing after pnpm deploy. apps/realtime/src/main.ts either does not exist or failed to compile." >&2 && exit 1)
+
+# --- runtime ---------------------------------------------------------------
+FROM node:20-bookworm-slim AS runtime
+RUN apt-get update -qq \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && groupadd --gid 1001 chat \
+  && useradd --uid 1001 --gid chat --shell /usr/sbin/nologin --no-create-home chat
+WORKDIR /app
+COPY --from=prod-deps --chown=chat:chat /prod/realtime ./
+USER chat
+ENV NODE_ENV=production
+EXPOSE 4100
+# The gateway's /health does more than ping Redis: it publishes a nonce on the
+# Socket.io adapter's own two connections and waits to receive it back. A gateway
+# whose process is alive but whose pub/sub is dead still answers every socket it
+# holds and silently stops relaying to the other replicas, which is exactly the
+# failure a liveness-only probe misses and the worst symptom this product has.
+# 503 when that round trip fails, so the status code below is the whole check.
+#
+# PORT before REALTIME_PORT, matching apps/realtime/src/config.ts. That
+# precedence is what lets infra/docker-compose.yml's `realtime-2` run a second
+# replica on 4101 out of this same image, and a healthcheck that assumed 4100
+# would report the second replica as unhealthy forever.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "require('http').get('http://127.0.0.1:'+(process.env.PORT||process.env.REALTIME_PORT||4100)+'/health',(r)=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"
+CMD ["node", "dist/main.js"]

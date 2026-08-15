@@ -1,0 +1,15 @@
+{
+  "extends": "@chat/config/tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // `dom` as well as node: `page.evaluate` bodies run in the browser, so they
+    // reference `document` and `getComputedStyle`. Without it those are type
+    // errors in a file that is otherwise pure Node.
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler"
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules", "playwright-report", "test-results"]
+}

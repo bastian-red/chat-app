@@ -1,0 +1,315 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Postgres 5438 and Redis 6385, matching .env.example. Every job that needs them
+# declares its own service containers rather than sharing a block, because GitHub
+# Actions has no way to share services between jobs and a YAML anchor would be a
+# second place for the ports to drift from .env.example.
+jobs:
+  quality:
+    name: Lint, typecheck, secrets, format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks scans commit history, not just the working tree; a shallow
+          # checkout would let a secret introduced two commits ago and reverted
+          # in the third pass clean.
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Generates packages/db/generated/client. typecheck depends on ^build
+      # (turbo.json), which would generate it anyway, but doing it first means a
+      # schema problem reports as "prisma generate failed" and not as a wall of
+      # downstream type errors in every package that imports @chat/db.
+      - run: pnpm db:generate
+      # Free and instant, so it runs before anything that costs real time: turbo
+      # runs in strict env mode, so a variable the code reads but turbo.json does
+      # not declare is silently undefined at runtime, and this is the one check
+      # that says so before a symptom does.
+      # The scanner before the scan: it reported a variable called NAME once,
+      # having read the words `env.NAME` out of the comment that documents this
+      # contract, so its own cases run first.
+      - run: pnpm env:contract:self-test
+      - run: pnpm env:contract
+      # Same lane, same reasoning: a raw U+00A0 inside a template literal renders
+      # as a space in every editor and every diff, and tests written against what
+      # the source appears to say then fail against code that is correct.
+      - run: pnpm scan:invisible:self-test
+      - run: pnpm scan:invisible
+      - name: Install gitleaks
+        # Not preinstalled on the runner. Pinned to the version this repo's
+        # config was authored against, downloaded from the project's own releases
+        # rather than a third-party Action, so the binary `pnpm run scan:secrets`
+        # finds on PATH is exactly the one a contributor's pre-commit hook runs
+        # locally -- one tool, one behaviour, not two implementations that drift.
+        shell: bash
+        run: |
+          set -euo pipefail
+          GITLEAKS_VERSION=8.30.1
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+      - run: pnpm run scan:secrets
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm exec prettier --check "**/*.{ts,tsx,js,cjs,mjs,json,md}"
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - name: Unit tests
+        run: pnpm test
+      # The same suite, one variable different. TZ is in turbo.json's
+      # globalPassThroughEnv specifically so this line can reach the child
+      # process. `packages/shared/src/time` decides which calendar day a message
+      # was sent on, which is what the conversation's day dividers are drawn from,
+      # and the only way to know that assumption holds is to run it somewhere that
+      # is neither the author's zone nor the runner's. Kiritimati is UTC+14, about
+      # as far from a runner's default UTC as the clock goes.
+      - name: Unit tests (TZ=Pacific/Kiritimati)
+        run: pnpm test
+        env:
+          TZ: Pacific/Kiritimati
+
+  integration:
+    name: Integration (Postgres, Redis, two gateways, TZ=Pacific/Kiritimati)
+    runs-on: ubuntu-24.04
+    # The whole job runs under a non-UTC timezone, deliberately (see the unit job
+    # above). Everything here -- migrations, the seed, the concurrency proof, the
+    # cross-replica broadcast -- runs under it, not just the test process, so a
+    # UTC assumption anywhere in the stack fails here rather than for a reader in
+    # another timezone.
+    env:
+      TZ: Pacific/Kiritimati
+      # These two run OUTSIDE scripts/integration.sh, so they do not get its
+      # defaults. `prisma migrate deploy` reads both names out of schema.prisma
+      # and fails validation (P1012) without them, which reads as "environment
+      # variable not found" rather than as "this job forgot to set it". The
+      # values are .env.example's, matching the service containers.
+      #
+      # This is not the pattern dev-smoke forbids: that job exists to prove the
+      # app configures itself from the repo, and supplying anything there would
+      # make it test its own setup. This job is proving database and pub/sub
+      # invariants, and its connection strings are fixtures like any other.
+      DATABASE_URL: postgresql://chat:chat@localhost:5438/chat?schema=public
+      DIRECT_DATABASE_URL: postgresql://chat:chat@localhost:5438/chat?schema=public
+      REDIS_URL: redis://localhost:6385
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: chat
+          POSTGRES_PASSWORD: chat
+          POSTGRES_DB: chat
+        ports: ['5438:5432']
+        options: >-
+          --health-cmd "pg_isready -U chat -d chat"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6385:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      # Explicit, ahead of scripts/integration.sh's own migrate-and-seed: if
+      # migrating or seeding itself is what broke, this step names that directly
+      # instead of it surfacing as a confusing failure inside the suite.
+      - run: pnpm db:deploy
+      - run: pnpm db:seed
+      # Two runs of the seed, digested and compared. It is the check that catches
+      # a missing cascade: a channel that survived its owner shows up as a doubled
+      # row count, and every other lane would happily run against the duplicate.
+      # It also digests `seq` directly, which is only meaningful because the
+      # sequence is dense and allocated by Postgres rather than jittered.
+      - run: ./scripts/seed-check.sh
+      # The same script a developer runs locally: migrates, builds, seeds, starts
+      # TWO gateway processes on 4100 and 4101, and runs the real-infrastructure
+      # suite. Two, not one, is the point: with a single process every socket
+      # shares one in-memory adapter and the broadcast assertions pass whether or
+      # not @socket.io/redis-adapter is wired at all. CI cannot drift from the
+      # local flow because there is only one flow.
+      - run: ./scripts/integration.sh
+
+  # This job deliberately declares NO env: block, at the job level or the
+  # workflow level. dev-smoke.sh strips every name .env.example (and .env) define
+  # from the child environment before starting `pnpm dev`, so the app has to get
+  # its configuration from the repo -- .env -> scripts/dev.sh -> turbo -- the way
+  # a fresh clone does. Supplying AUTH_SECRET or the database URLs from the job's
+  # own environment would make this job test its own setup instead of the
+  # README's documented command; that is exactly the gap that left `pnpm dev`
+  # broken for months in three sibling projects while every other CI lane stayed
+  # green. Do not "fix" this by adding one.
+  dev-smoke:
+    name: pnpm dev serves the app
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: chat
+          POSTGRES_PASSWORD: chat
+          POSTGRES_DB: chat
+        ports: ['5438:5432']
+        options: >-
+          --health-cmd "pg_isready -U chat -d chat"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6385:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Verbatim from README.md, "Running it". If these lines stop producing a
+      # working app, the README is wrong and this job is what says so.
+      - name: Set up .env the way the README says
+        run: |
+          cp .env.example .env
+          sed -i "s|^AUTH_SECRET=|AUTH_SECRET=$(openssl rand -base64 32)|" .env
+      - name: Migrate and seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          . ./.env
+          set +a
+          pnpm db:generate && pnpm db:deploy && pnpm db:seed
+      # WAIT_SECONDS is the script's own timeout knob, not application
+      # configuration, so it does not breach the no-env rule above: a cold runner
+      # compiles a Nest build, a tsc watch and a Next dev server from nothing, and
+      # 60s is a local number.
+      - run: WAIT_SECONDS=240 ./scripts/dev-smoke.sh
+
+  e2e:
+    name: E2E (Playwright, Chromium + Firefox)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: chat
+          POSTGRES_PASSWORD: chat
+          POSTGRES_DB: chat
+        ports: ['5438:5432']
+        options: >-
+          --health-cmd "pg_isready -U chat -d chat"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6385:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      # Both engines. Firefox is not redundancy: it is the one that reported a
+      # sibling project's scrollable regions as keyboard-inaccessible, which
+      # Chromium's axe run did not, and that was a real WCAG 2.1.1 failure on
+      # three elements. A conversation is a scrollable region, so this project has
+      # the same shape of surface.
+      - run: pnpm --filter @chat/e2e exec playwright install --with-deps chromium firefox
+      # scripts/e2e.sh migrates, builds in production mode, reseeds, boots the
+      # api, the gateway and the web app, and runs the suite -- the same script a
+      # developer runs locally.
+      - run: ./scripts/e2e.sh
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: e2e/test-results
+          retention-days: 7
+
+  images:
+    name: Docker images build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # Built but never pushed and never deployed: this portfolio publishes to
+      # GitHub only. The point of this job is to catch a Dockerfile that breaks
+      # before anyone relies on it, not to produce an artifact anyone downloads.
+      - name: api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/Dockerfile.api
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: realtime
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/Dockerfile.realtime
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/Dockerfile.web
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

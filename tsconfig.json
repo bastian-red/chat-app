@@ -1,0 +1,5 @@
+{
+  "files": [],
+  "include": [],
+  "comment": "Per-package tsconfig files build independently. Turbo orders builds via dependsOn."
+}

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+
+  // Turbo 2 defaults to strict env mode: a task's child process sees only the
+  // names below plus turbo's own system allowlist. Everything else is stripped
+  // silently. Three sibling projects in this portfolio shipped with a short list
+  // here, which meant `pnpm dev` started an API with no AUTH_SECRET and every
+  // server render died with ECONNREFUSED. The default is kept deliberately --
+  // "loose" would hide the next under-declaration instead of fixing this one.
+  // scripts/env-contract.mjs keeps these lists honest against .env.example and
+  // against what the source actually reads.
+
+  // Feeds the cache key. Only variables that change what gets BUILT belong here,
+  // and never a secret: turbo hashes the value, so a rotated credential would
+  // invalidate every cached build and put the secret into the hash input.
+  //
+  // The two NEXT_PUBLIC_ names are here rather than below because `next build`
+  // inlines them into the browser bundle. Changing where the browser thinks the
+  // API and the socket server live genuinely changes the artifact, so a cached
+  // build from the old value would be wrong.
+  "globalEnv": ["API_BASE_URL", "NEXT_PUBLIC_API_BASE_URL", "NEXT_PUBLIC_REALTIME_URL", "NODE_ENV"],
+
+  // Reaches the process without entering the cache key: runtime wiring, ports,
+  // credentials, operational tuning. Changing one of these must not force a
+  // rebuild, but the process must still see it.
+  "globalPassThroughEnv": [
+    "API_PORT",
+    "APP_BASE_URL",
+    "APP_VERSION",
+    "AUTH_SECRET",
+    "AUTH_URL",
+    "CATCHUP_MAX_MESSAGES",
+    "DATABASE_URL",
+    "DIRECT_DATABASE_URL",
+    "HISTORY_PAGE_SIZE",
+    "PORT",
+    "PRESENCE_HEARTBEAT_SECONDS",
+    "PRESENCE_TTL_SECONDS",
+    "RATE_LIMIT_AUTH",
+    "RATE_LIMIT_GLOBAL",
+    "REALTIME_BASE_URL",
+    "REALTIME_BASE_URL_2",
+    "REALTIME_PORT",
+    "REDIS_URL",
+    "SEND_RETRY_ATTEMPTS",
+    "SOCKET_EVENT_RATE_LIMIT",
+    "SOCKET_MAX_PAYLOAD_BYTES",
+    // Not application configuration, and deliberately absent from .env.example.
+    // `packages/shared/src/time` formats every message timestamp and day divider
+    // against an explicit zone, and its tests pin TZ so a machine in Santiago and
+    // a runner in UTC agree on which day a message was sent. Without this line
+    // turbo strips TZ and `TZ=Pacific/Kiritimati pnpm test` would quietly run in
+    // the machine's own zone, passing while proving nothing.
+    "TZ",
+    "TYPING_TTL_SECONDS",
+    "UPLOAD_DIR",
+    "UPLOAD_MAX_BYTES",
+    "WEB_PORT"
+  ],
+
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+    },
+    // `^build` even though every dev server watches its own sources: the three
+    // apps import the workspace packages through their package.json `main`,
+    // which points at `dist/`. On a machine that has built once that file is
+    // there and `pnpm dev` works; on a fresh clone the API dies on its first
+    // import and the only symptom is that nothing ever listens on :4000.
+    "dev": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true
+    },
+    "typecheck": {
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"]
+    },
+    "test:integration": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+
+    // The seed imports @chat/messaging to write its conversation through the same
+    // sequence allocator the app uses, and that package's package.json points at
+    // `dist/`. On a machine that has built once, that file is there; on a clean
+    // checkout it is not, and the failure is `Cannot find module
+    // .../@chat/messaging/dist/index.js` from inside the seed -- an error about
+    // module resolution, several layers from "you have not built the workspace".
+    //
+    // Never cached: seeding writes to a database turbo cannot see, so a cache hit
+    // would skip the write and report success.
+    "seed": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+
+    // `prisma migrate deploy` reads DIRECT_DATABASE_URL out of schema.prisma, and
+    // turbo is what carries it through strict env mode.
+    "migrate:deploy": {
+      "cache": false
+    },
+    "test:e2e": {
+      "cache": false
+    }
+  }
+}

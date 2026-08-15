@@ -1,0 +1,44 @@
+{
+  "name": "chat-app",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "./scripts/dev.sh",
+    "lint": "eslint .",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:integration": "./scripts/integration.sh",
+    "test:e2e": "./scripts/e2e.sh",
+    "db:generate": "pnpm --filter @chat/db generate",
+    "db:migrate": "pnpm --filter @chat/db migrate:dev",
+    "db:deploy": "turbo run migrate:deploy --filter=@chat/db",
+    "db:seed": "turbo run seed --filter=@chat/db",
+    "db:seed:check": "./scripts/seed-check.sh",
+    "env:contract": "node scripts/env-contract.mjs",
+    "env:contract:self-test": "node scripts/env-contract.mjs --self-test",
+    "scan:invisible": "node scripts/invisible-chars.mjs",
+    "scan:invisible:self-test": "node scripts/invisible-chars.mjs --self-test",
+    "scan:secrets": "gitleaks detect --no-banner --redact --config .gitleaks.toml",
+    "demo:gif": "./scripts/demo-gif.sh",
+    "format": "prettier --write \"**/*.{ts,tsx,js,cjs,mjs,json,md}\"",
+    "prepare": "node scripts/install-hooks.mjs"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm exec node scripts/pre-commit.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2",
+    "simple-git-hooks": "^2.11.1",
+    "turbo": "^2.3.3",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.18.1"
+  }
+}

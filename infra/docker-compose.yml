@@ -1,0 +1,191 @@
+# Local development infrastructure: Postgres and Redis, and (behind the `app`
+# profile) the api, realtime and web application containers.
+#
+#   docker compose -f infra/docker-compose.yml up -d
+#     -> datastores only (postgres, redis). The documented default: a reader who
+#        wants the documented `pnpm dev` loop, not the images.
+#   docker compose -f infra/docker-compose.yml --profile app up -d --build
+#     -> datastores + api + realtime + realtime-2 + web, built from the three
+#        Dockerfiles in this directory. Requires a real .env in the repo root
+#        (loaded via env_file), the same file scripts/dev.sh requires.
+#
+# No Mailhog: this project sends no mail. The three siblings that do carry an
+# SMTP service; adding one here would be a dependency nothing reads.
+#
+# Ports are deliberately off the defaults. The dev host runs a system PostgreSQL
+# on 5432 and the five other portfolio stacks on 5433-5437 and 6380-6384, so this
+# project takes 5438/6385 and every URL in .env.example matches.
+#
+# `name` is explicit on purpose. Compose otherwise derives the project name from
+# the containing directory, which is `infra` in every project of this portfolio,
+# so two stacks would share one project name and evict each other's containers
+# and volumes.
+name: chat
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: chat-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chat
+      POSTGRES_PASSWORD: chat
+      POSTGRES_DB: chat
+    ports:
+      - '5438:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U chat -d chat']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Redis is not a cache here. It carries the Socket.io adapter's pub/sub, which
+  # is the only thing that makes two realtime replicas one logical server, and it
+  # holds the presence roster (services/presence) with its TTL sweep. Losing it
+  # does not slow the app down, it silently splits every channel in it.
+  redis:
+    image: redis:7-alpine
+    container_name: chat-redis
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6385:6379'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- app profile -----------------------------------------------------
+  # Absent from `docker compose up -d`; only started with `--profile app`.
+  # Every service builds from the repo root (`context: ..`) because the
+  # Dockerfiles COPY the whole pnpm workspace, not just infra/.
+  api:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.api
+    image: chat-api
+    container_name: chat-api
+    profiles: ['app']
+    restart: unless-stopped
+    # Loads the real .env first (AUTH_SECRET, rate limits, retry counts, ...),
+    # the same file scripts/dev.sh requires. Relative to this file's directory,
+    # per Compose's env_file resolution -- not to whatever directory
+    # `docker compose` happens to be run from.
+    env_file:
+      - ../.env
+    environment:
+      # Overrides only what changes inside the compose network: containers reach
+      # Postgres and Redis by service name, never by the `localhost` a host .env
+      # points at.
+      DATABASE_URL: postgresql://chat:chat@postgres:5432/chat?schema=public
+      DIRECT_DATABASE_URL: postgresql://chat:chat@postgres:5432/chat?schema=public
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '4000:4000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # No compose-level healthcheck: infra/Dockerfile.api already declares one and
+    # the built image carries it, so redeclaring it here would be a second copy
+    # of the same probe that can drift from the first.
+
+  # Two realtime replicas, not one, and this is the point rather than a flourish.
+  # A single gateway proves nothing about the Redis adapter: every socket lands
+  # on the same process and broadcasts work whether or not the adapter is wired.
+  # With two, a message sent by a client on 4100 only reaches a client on 4101 if
+  # the pub/sub path is real. scripts/integration.sh asserts exactly that, and
+  # this file is the shape a reader can run by hand to see it.
+  realtime:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.realtime
+    image: chat-realtime
+    container_name: chat-realtime
+    profiles: ['app']
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql://chat:chat@postgres:5432/chat?schema=public
+      DIRECT_DATABASE_URL: postgresql://chat:chat@postgres:5432/chat?schema=public
+      REDIS_URL: redis://redis:6379
+      REALTIME_PORT: '4100'
+    ports:
+      - '4100:4100'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  realtime-2:
+    # Same image as `realtime`, built once by that service. Declaring `build`
+    # here too would make Compose build the identical context a second time.
+    image: chat-realtime
+    container_name: chat-realtime-2
+    profiles: ['app']
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql://chat:chat@postgres:5432/chat?schema=public
+      DIRECT_DATABASE_URL: postgresql://chat:chat@postgres:5432/chat?schema=public
+      REDIS_URL: redis://redis:6379
+      # PORT wins over REALTIME_PORT in apps/realtime's config, and it is the
+      # name every container runtime injects, so the second replica moves with
+      # PORT and leaves REALTIME_PORT alone.
+      PORT: '4101'
+    ports:
+      - '4101:4101'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      realtime:
+        condition: service_started
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.web
+      args:
+        # Browser-visible URLs, baked into the client bundle at build time (see
+        # the Dockerfile). They default to the host ports `api` and `realtime`
+        # publish above; override on the shell for a non-default mapping:
+        #   NEXT_PUBLIC_REALTIME_URL=http://localhost:9100 \
+        #     docker compose --profile app up -d --build
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:4000}
+        NEXT_PUBLIC_REALTIME_URL: ${NEXT_PUBLIC_REALTIME_URL:-http://localhost:4100}
+    image: chat-web
+    container_name: chat-web
+    profiles: ['app']
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      # Server-to-server calls stay inside the compose network; the browser never
+      # sees these values, only the NEXT_PUBLIC_* pair baked in above.
+      API_BASE_URL: http://api:4000
+      REALTIME_BASE_URL: http://realtime:4100
+    ports:
+      - '3000:3000'
+    depends_on:
+      api:
+        condition: service_healthy
+      realtime:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:

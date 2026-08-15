@@ -1,0 +1,15 @@
+{
+  "extends": "@chat/config/tsconfig.node.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "baseUrl": ".",
+    "declaration": false,
+    "declarationMap": false,
+    "composite": false,
+    "noUncheckedIndexedAccess": false,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "test", "src/**/*.test.ts"]
+}

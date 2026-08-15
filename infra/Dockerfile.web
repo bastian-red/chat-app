@@ -1,0 +1,97 @@
+# syntax=docker/dockerfile:1.7
+#
+# Multi-stage build for @chat/web (Next.js 14, App Router, output: 'standalone'
+# per apps/web/next.config.mjs).
+#
+# Build from the REPO ROOT:
+#   docker build -f infra/Dockerfile.web -t chat-web .
+
+FROM node:20-bookworm-slim AS base
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+WORKDIR /repo
+
+# --- fetch -------------------------------------------------------------
+FROM base AS fetch
+COPY pnpm-lock.yaml pnpm-workspace.yaml ./
+# --ignore-scripts: `pnpm fetch` installs into a throwaway virtual store, which
+# runs postinstall for every package that has one -- including simple-git-hooks,
+# a ROOT devDependency with nothing to do with @chat/web. Its bundled
+# postinstall.js walks up looking for the nearest package.json, which this stage
+# has not copied (only the lockfile has, on purpose, so this layer's cache key
+# stays the lockfile alone), and crashes the whole fetch with ENOENT.
+RUN pnpm fetch --ignore-scripts
+
+# --- build ---------------------------------------------------------------
+FROM fetch AS build
+COPY . .
+# --offline: see infra/Dockerfile.api. --ignore-scripts: same reason as above,
+# plus there is no .git directory inside a Docker build (see .dockerignore), so
+# simple-git-hooks' packaged postinstall.js has nothing to attach to.
+RUN pnpm install --frozen-lockfile --offline --ignore-scripts
+
+# Two browser-visible URLs, not one. Next inlines every NEXT_PUBLIC_* name by
+# textual substitution at build time, so both have to be ARGs turned into ENVs
+# before `next build` runs; setting them with `docker run -e` afterwards has no
+# effect on an already-built client bundle. The realtime one matters more here
+# than in a REST-only app: the conversation opens its socket from the browser, so
+# a wrong or missing NEXT_PUBLIC_REALTIME_URL produces a page that renders
+# perfectly, signs in, and never receives a single message.
+ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
+ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+ARG NEXT_PUBLIC_REALTIME_URL=http://localhost:4100
+ENV NEXT_PUBLIC_REALTIME_URL=${NEXT_PUBLIC_REALTIME_URL}
+
+# NODE_ENV=production is not optional: `next build` under development mode
+# produces a prerender that the build step reports as successful but that 500s at
+# runtime -- the same trap scripts/e2e.sh's build step guards against.
+# AUTH_SECRET is required at build time because apps/web/auth.ts is imported
+# during the Next build for route enumeration and type-checking, and it validates
+# the secret's length the way apps/api/src/config does. This value is allowlisted
+# verbatim in .gitleaks.toml as a documented build-time placeholder; it is never
+# the runtime AUTH_SECRET, which comes from the real .env.
+ENV NODE_ENV=production
+ENV AUTH_SECRET=build-time-placeholder-secret-32chars
+RUN pnpm exec turbo run build --filter=@chat/web...
+
+# public/ is optional in Next.js, but the runtime stage's COPY below is not
+# conditional and a missing source path fails a Docker COPY outright. mkdir -p is
+# a no-op the day a real public/ exists.
+RUN mkdir -p apps/web/public
+
+# Standalone output traces the dependency graph from the monorepo root (wherever
+# pnpm-lock.yaml lives, which output file tracing treats as the project root in a
+# pnpm workspace) and reproduces that relative path inside .next/standalone, so
+# server.js lands at apps/web/.next/standalone/apps/web/server.js and not at the
+# standalone directory's own root. This assertion turns a wrong assumption into a
+# build failure with a directory listing instead of an image that ships a missing
+# server.js.
+RUN test -f apps/web/.next/standalone/apps/web/server.js || \
+  (echo "build: expected apps/web/.next/standalone/apps/web/server.js. Actual standalone contents:" >&2 \
+   && find apps/web/.next/standalone -maxdepth 3 >&2 && exit 1)
+
+# --- runtime -----------------------------------------------------------
+FROM node:20-bookworm-slim AS runtime
+RUN groupadd --gid 1001 chat \
+  && useradd --uid 1001 --gid chat --shell /usr/sbin/nologin --no-create-home chat
+WORKDIR /app
+# Static assets and public/ are deliberately excluded from Next's output file
+# trace (documented Next.js behaviour) and are copied in separately, nested to
+# match where server.js expects to find them.
+COPY --from=build --chown=chat:chat /repo/apps/web/.next/standalone ./
+COPY --from=build --chown=chat:chat /repo/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build --chown=chat:chat /repo/apps/web/public ./apps/web/public
+USER chat
+ENV NODE_ENV=production
+EXPOSE 3000
+# PORT wins over WEB_PORT the same way apps/web's own scripts do
+# (`next start -p ${WEB_PORT:-3000}`); the standalone server.js honours $PORT
+# itself, which is why this reads it rather than assuming the EXPOSEd default.
+# `/` rather than `/status`: the status page probes both /health endpoints, so a
+# healthcheck pointed at it would mark the web container unhealthy whenever the
+# API or a gateway was down, which is a report about a different container.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "require('http').get('http://127.0.0.1:'+(process.env.PORT||process.env.WEB_PORT||3000)+'/',(r)=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"
+# Path is relative to the monorepo root the standalone tree preserves, not a flat
+# server.js at the image root. `CMD ["node","server.js"]` fails with
+# MODULE_NOT_FOUND here.
+CMD ["node", "apps/web/server.js"]

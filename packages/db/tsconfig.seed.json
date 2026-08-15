@@ -1,0 +1,16 @@
+{
+  // The seed is real code and it is the only consumer of parts of @chat/messaging
+  // outside the service's own tests, so it gets typechecked like everything else.
+  //
+  // It needs its own config because it is not part of the build: `tsconfig.json`
+  // has `rootDir: src` and emits to `dist`, and `prisma/seed.ts` is run through
+  // tsx and never compiled. Adding it to the build config would either move the
+  // whole output directory up a level or fail on `rootDir`. Checking is free;
+  // emitting is what the constraint is about.
+  "extends": "@chat/config/tsconfig.node.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["prisma/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

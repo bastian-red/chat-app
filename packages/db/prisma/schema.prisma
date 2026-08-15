@@ -1,0 +1,229 @@
+// The chat's data model.
+//
+// Three decisions run through the whole file and are worth reading before the
+// tables:
+//
+// 1. **Order comes from Postgres, not from a clock.** Every message carries a
+//    `seq` that is unique and gapless within its channel, allocated inside the
+//    send transaction by `UPDATE channels SET next_seq = next_seq + 1 RETURNING
+//    next_seq`. That statement takes a row lock, so concurrent senders queue
+//    instead of racing. `createdAt` exists for display only: two API processes
+//    can disagree about `now()` by milliseconds, NTP can step a clock backwards,
+//    and a tie in a timestamp is a coin flip about what a conversation said.
+//
+// 2. **A resend is not a second message.** The client generates
+//    `clientMessageId` before it sends, and `@@unique([channelId, clientMessageId])`
+//    is what makes a retry after a dropped ack return the original row instead of
+//    duplicating it. Without it, "send failed, try again" is how a message gets
+//    posted twice.
+//
+// 3. **Deleting a message is a timestamp.** `deletedAt`, never a row removal. A
+//    gap in `seq` is indistinguishable from a message a client has not received
+//    yet, so a hard delete would make every reader's catch-up logic think it was
+//    missing something and refetch forever. A deleted message keeps its seq and
+//    loses its body.
+//
+// Everything Prisma cannot express -- the CHECK constraints, the shape of a DM
+// key, the partial unique index that allows one OWNER per channel -- lives in
+// `migrations/20260811090000_chat_invariants/migration.sql`. Prisma keeps that
+// file because `prisma migrate` never rewrites an applied migration; it is the
+// same pattern the sibling projects use for their invariants.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Migrations cannot run through a transaction-mode pooler. Locally this is the
+  // same value as `url`; in front of a pooler it is the provider's direct URL.
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+enum ChannelKind {
+  PUBLIC
+  PRIVATE
+  DM
+}
+
+enum ChannelRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  // The reader's own zone, stored rather than read from the browser. "Which day
+  // was this message sent?" is a question about their calendar day, and a
+  // conversation open on a laptop in Madrid and a phone in Santiago must not
+  // disagree about where the day dividers go.
+  timeZone     String   @default("UTC") @map("time_zone")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  memberships     ChannelMember[]
+  messages        Message[]
+  createdChannels Channel[]       @relation("ChannelCreator")
+  mentions        Mention[]
+  uploads         Attachment[]
+
+  @@map("users")
+}
+
+model Channel {
+  id   String      @id @default(cuid())
+  kind ChannelKind
+
+  // Human-facing. A DM has neither: its name is whoever is in it, resolved per
+  // reader, because "Ana Ruiz" is the wrong label for Ana's own window.
+  slug  String? @unique
+  name  String?
+  topic String?
+
+  /// The next sequence number this channel will hand out, and the only source of
+  /// message order. Starts at 1, so `nextSeq - 1` is the highest seq in use and
+  /// `nextSeq - lastReadSeq - 1` is a member's unread count -- computed, never
+  /// stored twice.
+  ///
+  /// `BigInt` rather than `Int` because it only ever increases and a busy channel
+  /// in a long-lived deployment should not have a ceiling anybody has to think
+  /// about. It costs 8 bytes a row.
+  nextSeq BigInt @default(1) @map("next_seq")
+
+  /// The two participants of a DM, sorted and joined with a colon.
+  ///
+  /// Unique, and that uniqueness is the whole mechanism: two people who click
+  /// "message" on each other at the same instant both compute the same key, one
+  /// INSERT wins, and the loser reads the winner's row back instead of creating a
+  /// second conversation that each of them can see half of. Null for PUBLIC and
+  /// PRIVATE channels, and Postgres does not consider nulls equal, so any number
+  /// of them coexist under a UNIQUE.
+  dmKey String? @unique @map("dm_key")
+
+  createdById String?  @map("created_by_id")
+  createdBy   User?    @relation("ChannelCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  members  ChannelMember[]
+  messages Message[]
+
+  @@map("channels")
+}
+
+model ChannelMember {
+  channelId String      @map("channel_id")
+  channel   Channel     @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId    String      @map("user_id")
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      ChannelRole @default(MEMBER)
+
+  /// The highest seq this member has read. Zero means "nothing", which is why
+  /// seq counts from 1 -- with a zero-based seq, "read nothing" and "read the
+  /// first message" would be the same value.
+  lastReadSeq BigInt   @default(0) @map("last_read_seq")
+  joinedAt    DateTime @default(now()) @map("joined_at")
+
+  @@id([channelId, userId])
+  // Every "which channels am I in, and how many unread?" query starts here.
+  @@index([userId])
+  @@map("channel_members")
+}
+
+model Message {
+  id        String  @id @default(cuid())
+  channelId String  @map("channel_id")
+  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  /// Unique and gapless within the channel. See the header.
+  seq BigInt
+
+  authorId String? @map("author_id")
+  author   User?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  /// Generated by the client before the send, so a retry is recognisable. Not a
+  /// cuid from the server: the point is that it exists before the server has ever
+  /// heard of the message.
+  clientMessageId String @map("client_message_id")
+
+  body String
+
+  editedAt  DateTime? @map("edited_at")
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  attachments Attachment[]
+  mentions    Mention[]
+
+  @@unique([channelId, seq])
+  @@unique([channelId, clientMessageId])
+  // History is read newest-first by keyset on seq, never by OFFSET: a message
+  // arriving mid-scroll shifts every offset by one and the reader sees a line
+  // twice or not at all. The descending index is what makes that read one seek.
+  @@index([channelId, seq(sort: Desc)])
+  @@map("messages")
+}
+
+model Attachment {
+  id String @id @default(cuid())
+
+  /// Null until the message that carries it is sent.
+  ///
+  /// Nullable because the upload happens **first**: the client POSTs the bytes to
+  /// the API, gets an id back, and passes that id in `message.send`'s
+  /// `attachmentIds` (`contracts/channel.ts`). A required column would make that
+  /// flow impossible to express -- there is no message to point at yet -- and the
+  /// alternative, uploading inside the send, would mean a ten-megabyte multipart
+  /// body inside the transaction that holds the channel's sequence row lock.
+  ///
+  /// The cost is that an upload nobody ever sent is a row with no message. That is
+  /// a real state and not an error: somebody attached a file and closed the tab.
+  messageId String?  @map("message_id")
+  message   Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  /// Who uploaded it. The authorisation input for two questions.
+  ///
+  /// Attaching: `message.send` names attachment ids, and without an owner anybody
+  /// could attach a file somebody else uploaded by guessing its id. Serving: the
+  /// API streams these behind the session, and an orphan (no message yet) has no
+  /// channel membership to check instead.
+  ///
+  /// `SetNull` rather than `Cascade`, and nullable for the same reason
+  /// `Message.authorId` is: a conversation is a record and outlives the account
+  /// that wrote it. Deleting a user must not punch holes in everybody else's
+  /// history.
+  uploadedById String? @map("uploaded_by_id")
+  uploadedBy   User?   @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  filename    String
+  /// Sniffed from the bytes on upload, never taken from the request header. A
+  /// client that says `image/png` and sends a script is the whole reason.
+  contentType String   @map("content_type")
+  byteSize    Int      @map("byte_size")
+  /// A path relative to UPLOAD_DIR, generated server-side. Never the uploaded
+  /// filename: that arrives from a browser and can contain `../`.
+  storageKey  String   @map("storage_key")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // "Which attachments belong to this message", read on every history page.
+  @@index([messageId])
+  @@map("attachments")
+}
+
+model Mention {
+  messageId String  @map("message_id")
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String  @map("user_id")
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId])
+  // "Everything that mentions me", which is the notification query.
+  @@index([userId])
+  @@map("mentions")
+}

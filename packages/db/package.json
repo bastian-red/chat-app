@@ -1,0 +1,41 @@
+{
+  "name": "@chat/db",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "generate": "prisma generate",
+    "migrate:dev": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
+    "migrate:diff": "prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script",
+    "studio": "prisma studio",
+    "seed": "tsx prisma/seed.ts",
+    "build": "prisma generate && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.seed.json",
+    "test": "vitest run"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@chat/messaging": "workspace:*",
+    "@chat/shared": "workspace:*",
+    "@prisma/client": "^5.22.0"
+  },
+  "devDependencies": {
+    "@chat/config": "workspace:*",
+    "@types/node": "^20.17.6",
+    "prisma": "^5.22.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

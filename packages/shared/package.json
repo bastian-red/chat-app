@@ -1,0 +1,36 @@
+{
+  "name": "@chat/shared",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "require": "./dist/server/index.js",
+      "import": "./dist/server/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@chat/config": "workspace:*",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^20.17.6",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

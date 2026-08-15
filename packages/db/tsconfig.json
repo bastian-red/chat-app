@@ -1,0 +1,9 @@
+{
+  "extends": "@chat/config/tsconfig.node.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "prisma/seed.ts", "src/**/*.test.ts"]
+}
