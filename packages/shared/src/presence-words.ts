@@ -89,7 +89,9 @@ export function presenceLabel(entry: RosterEntry): string {
 export function presenceSummary(entries: readonly RosterEntry[]): string {
   const here = entries.filter((entry) => entry.state !== 'offline');
   if (here.length === 0) return 'Nobody else is here';
-  return here.length === 1 ? '1 other person is here' : `${String(here.length)} other people are here`;
+  return here.length === 1
+    ? '1 other person is here'
+    : `${String(here.length)} other people are here`;
 }
 
 /**

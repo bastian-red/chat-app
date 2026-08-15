@@ -49,14 +49,14 @@ product is those two disagreeing.
 
 ## The six properties, and the test that proves each
 
-| #   | Property                                                     | Where it lives                                                      | What proves it                                                                                                                        |
-| --- | ------------------------------------------------------------ | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | 24 simultaneous senders get exactly the seq set `1..24`       | the row lock in `allocateSeq`                                       | fires 24 concurrent sends at one channel; every seq distinct, no gap, `next_seq` left at 25, every body stored once                    |
-| 2   | A message sent on `:4100` reaches a client on `:4101`         | `@socket.io/redis-adapter` over two separate processes              | deleting `io.adapter(...)` turns **5** integration specs red and leaves the other 45 green, including the concurrency proof            |
-| 3   | A resend after a dropped ack is not a second message          | `@@unique([channelId, clientMessageId])`, caught rather than avoided | the same client id sent twice **concurrently** yields one row; one answer carries `duplicate: true` and the same seq                   |
-| 4   | The roster forgets somebody who stopped heartbeating          | a per-field timestamp in a Redis hash, swept on read                | a client closes without leaving; the roster drops them within `PRESENCE_TTL_SECONDS`, against a real Redis                             |
-| 5   | A reconnect catches up with no gap and no duplicate           | `services/sequencing` + `channel.catchup`, bounded                  | a second browser context goes offline, three messages are sent, it comes back: all three arrive, each exactly once                     |
-| 6   | Every state is legible with no colour perception at all       | `presence-words.ts`, and words beside every dot                     | the gate lane asserts light `online` and `offline` are **the same pixel** (1.00 contrast), which is why the word carries the state     |
+| #   | Property                                                | Where it lives                                                       | What proves it                                                                                                                     |
+| --- | ------------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | 24 simultaneous senders get exactly the seq set `1..24` | the row lock in `allocateSeq`                                        | fires 24 concurrent sends at one channel; every seq distinct, no gap, `next_seq` left at 25, every body stored once                |
+| 2   | A message sent on `:4100` reaches a client on `:4101`   | `@socket.io/redis-adapter` over two separate processes               | deleting `io.adapter(...)` turns **5** integration specs red and leaves the other 45 green, including the concurrency proof        |
+| 3   | A resend after a dropped ack is not a second message    | `@@unique([channelId, clientMessageId])`, caught rather than avoided | the same client id sent twice **concurrently** yields one row; one answer carries `duplicate: true` and the same seq               |
+| 4   | The roster forgets somebody who stopped heartbeating    | a per-field timestamp in a Redis hash, swept on read                 | a client closes without leaving; the roster drops them within `PRESENCE_TTL_SECONDS`, against a real Redis                         |
+| 5   | A reconnect catches up with no gap and no duplicate     | `services/sequencing` + `channel.catchup`, bounded                   | a second browser context goes offline, three messages are sent, it comes back: all three arrive, each exactly once                 |
+| 6   | Every state is legible with no colour perception at all | `presence-words.ts`, and words beside every dot                      | the gate lane asserts light `online` and `offline` are **the same pixel** (1.00 contrast), which is why the word carries the state |
 
 ## The one that is easy to fake
 
@@ -119,16 +119,16 @@ mapping: it takes a structural `RoomEmitter` (satisfied by both Socket.io's `Ser
 `@socket.io/redis-emitter`'s `Emitter`, neither of which is a dependency of `@chat/shared`)
 and builds every wire payload itself. A caller hands it domain objects, never an envelope.
 
-| Package              | What it owns                                                                |
-| -------------------- | --------------------------------------------------------------------------- |
-| `apps/web`           | Next.js app, the conversation, one socket, the design system                |
-| `apps/api`           | REST: auth, channels, history, uploads, `/health`. Holds no socket server   |
-| `apps/realtime`      | Socket.io gateway; the process that scales horizontally                     |
-| `services/messaging` | the write path: permissions, idempotency, read markers. No Prisma, no HTTP  |
-| `services/presence`  | the Redis roster and typing sets: connection-keyed, collapsed on read       |
-| `services/sequencing`| the client's reorder buffer. A pure state machine, zero I/O                 |
-| `packages/shared`    | contracts, the socket protocol, the role matrix, room names, time helpers   |
-| `packages/db`        | Prisma schema, the invariants migration, the adapter, the seed              |
+| Package               | What it owns                                                               |
+| --------------------- | -------------------------------------------------------------------------- |
+| `apps/web`            | Next.js app, the conversation, one socket, the design system               |
+| `apps/api`            | REST: auth, channels, history, uploads, `/health`. Holds no socket server  |
+| `apps/realtime`       | Socket.io gateway; the process that scales horizontally                    |
+| `services/messaging`  | the write path: permissions, idempotency, read markers. No Prisma, no HTTP |
+| `services/presence`   | the Redis roster and typing sets: connection-keyed, collapsed on read      |
+| `services/sequencing` | the client's reorder buffer. A pure state machine, zero I/O                |
+| `packages/shared`     | contracts, the socket protocol, the role matrix, room names, time helpers  |
+| `packages/db`         | Prisma schema, the invariants migration, the adapter, the seed             |
 
 ## Three things the schema does that the code cannot
 
@@ -138,7 +138,7 @@ Everything Prisma cannot express lives in `20260811090000_chat_invariants`:
   what the conversation said, permanently.
 - **`channel_members_one_owner_per_channel`**, a partial unique index, which is the only way to say
   "at most one row per channel where role = OWNER" in Postgres. There is no `owner_id`
-  column: the owner *is* the membership, so "who may delete this channel" is a query, and a
+  column: the owner _is_ the membership, so "who may delete this channel" is a query, and a
   query with two answers is a permission check that depends on row order. A DM has zero
   owners, because neither participant may remove the other.
 - **`messages_body_not_blank`**, written to exempt exactly the tombstone case.
@@ -155,9 +155,9 @@ with no code at all, where the SQLSTATE is quoted inside the connector's own tex
 The three status colours clear WCAG AA against the canvas individually and are useless
 against each other. Measured from the real stylesheet, in the gate lane:
 
-| Pair                | Light | Dark |
-| ------------------- | ----- | ---- |
-| `online` / `away`    | 1.10  | 1.01 |
+| Pair                 | Light    | Dark |
+| -------------------- | -------- | ---- |
+| `online` / `away`    | 1.10     | 1.01 |
 | `online` / `offline` | **1.00** | 1.28 |
 
 A ratio of 1.00 means identical relative luminance: to a reader with deuteranopia, or to
@@ -236,13 +236,13 @@ pnpm scan:invisible        # a character you cannot see is a bug you cannot revi
 ./scripts/e2e.sh           # Playwright: Chromium + Firefox, including axe on every route
 ```
 
-| Lane        | Count | What only it can prove                                                     |
-| ----------- | ----- | -------------------------------------------------------------------------- |
-| Unit        | 489   | the reorder buffer, the role matrix, DM keys, TTL arithmetic, the palette   |
-| Environment | 1     | every name the code reads is declared and documented, in four directions   |
-| Dev smoke   | 1     | the README's own command produces a working, live app                      |
-| Integration | 50    | concurrency, idempotency, cross-replica delivery, TTLs, schema invariants   |
-| E2E         | 2 engines | the flows a person performs, two contexts at once, zero axe violations  |
+| Lane        | Count     | What only it can prove                                                    |
+| ----------- | --------- | ------------------------------------------------------------------------- |
+| Unit        | 489       | the reorder buffer, the role matrix, DM keys, TTL arithmetic, the palette |
+| Environment | 1         | every name the code reads is declared and documented, in four directions  |
+| Dev smoke   | 1         | the README's own command produces a working, live app                     |
+| Integration | 50        | concurrency, idempotency, cross-replica delivery, TTLs, schema invariants |
+| E2E         | 2 engines | the flows a person performs, two contexts at once, zero axe violations    |
 
 Three things this suite does deliberately:
 
@@ -262,15 +262,15 @@ Three things this suite does deliberately:
 Every name is documented in `.env.example` and declared in `turbo.json`; the contract check
 fails if those two and the source ever disagree. The ones worth knowing:
 
-| Variable                     | Default | Why it is a knob                                                                                                                                   |
-| ---------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `HISTORY_PAGE_SIZE`          | 40      | messages per page, read by keyset on `seq` and never by OFFSET: a message arriving mid-scroll must not shift the page under the reader's thumb      |
-| `CATCHUP_MAX_MESSAGES`       | 200     | above this a reconnect answers `complete: false` and the client **reloads** rather than splicing. Streaming a week of backlog is how a gateway dies |
-| `PRESENCE_TTL_SECONDS`       | 25      | must be **more than twice** `PRESENCE_HEARTBEAT_SECONDS`, or one dropped packet marks somebody offline who is still reading. Both processes refuse to start otherwise |
-| `TYPING_TTL_SECONDS`         | 5       | short on purpose: an indicator that outlives the typing is a lie about who is in the conversation                                                   |
-| `SOCKET_EVENT_RATE_LIMIT`    | 240     | events per minute per socket, in process memory rather than Redis: a socket lives on exactly one replica for its whole life                        |
-| `UPLOAD_MAX_BYTES`           | 10 MB   | enforced by counting bytes **while streaming**, never by trusting `Content-Length`                                                                  |
-| `PORT`                       | unset   | wins over `REALTIME_PORT` and `API_PORT`. It is what lets compose run a second gateway replica on 4101 out of the image the first one built         |
+| Variable                  | Default | Why it is a knob                                                                                                                                                      |
+| ------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HISTORY_PAGE_SIZE`       | 40      | messages per page, read by keyset on `seq` and never by OFFSET: a message arriving mid-scroll must not shift the page under the reader's thumb                        |
+| `CATCHUP_MAX_MESSAGES`    | 200     | above this a reconnect answers `complete: false` and the client **reloads** rather than splicing. Streaming a week of backlog is how a gateway dies                   |
+| `PRESENCE_TTL_SECONDS`    | 25      | must be **more than twice** `PRESENCE_HEARTBEAT_SECONDS`, or one dropped packet marks somebody offline who is still reading. Both processes refuse to start otherwise |
+| `TYPING_TTL_SECONDS`      | 5       | short on purpose: an indicator that outlives the typing is a lie about who is in the conversation                                                                     |
+| `SOCKET_EVENT_RATE_LIMIT` | 240     | events per minute per socket, in process memory rather than Redis: a socket lives on exactly one replica for its whole life                                           |
+| `UPLOAD_MAX_BYTES`        | 10 MB   | enforced by counting bytes **while streaming**, never by trusting `Content-Length`                                                                                    |
+| `PORT`                    | unset   | wins over `REALTIME_PORT` and `API_PORT`. It is what lets compose run a second gateway replica on 4101 out of the image the first one built                           |
 
 ## Not deployed, on purpose
 

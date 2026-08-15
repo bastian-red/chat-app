@@ -110,10 +110,7 @@ export async function openDm(
     // it.
     const winner = await repository.withTransaction((tx) => tx.channelByDmKey(dmKey));
     if (!winner) {
-      throw new MessagingError(
-        'CONFLICT',
-        'The direct message could not be opened. Try again.',
-      );
+      throw new MessagingError('CONFLICT', 'The direct message could not be opened. Try again.');
     }
     return { channel: winner, existing: true };
   }

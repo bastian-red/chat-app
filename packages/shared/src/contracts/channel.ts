@@ -127,9 +127,7 @@ export const channelSummarySchema = z.object({
    * The other participants, for a DM's label and avatar. Empty for a named
    * channel, where the name is the name.
    */
-  counterparts: z.array(
-    z.object({ userId: idSchema, name: z.string(), initials: z.string() }),
-  ),
+  counterparts: z.array(z.object({ userId: idSchema, name: z.string(), initials: z.string() })),
 });
 
 export type ChannelSummary = z.infer<typeof channelSummarySchema>;
@@ -150,9 +148,7 @@ export const channelViewSchema = z.object({
   topic: channelTopicSchema.nullable(),
   role: channelRoleSchema,
   members: z.array(memberSchema),
-  counterparts: z.array(
-    z.object({ userId: idSchema, name: z.string(), initials: z.string() }),
-  ),
+  counterparts: z.array(z.object({ userId: idSchema, name: z.string(), initials: z.string() })),
   messages: z.array(messageSchema),
   hasMore: z.boolean(),
   /** The reader's own marker, so the client can draw the unread divider. */

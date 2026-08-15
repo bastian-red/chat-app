@@ -163,8 +163,7 @@ export function ackSchema<T extends z.ZodTypeAny>(data: T) {
 export const emptyAckSchema = ackSchema(z.object({}).strict());
 
 export type Ack<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: z.infer<typeof socketErrorSchema> };
+  { ok: true; data: T } | { ok: false; error: z.infer<typeof socketErrorSchema> };
 
 // --- Handshake --------------------------------------------------------------
 

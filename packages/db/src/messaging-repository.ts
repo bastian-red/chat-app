@@ -273,10 +273,7 @@ class PrismaMessagingTx implements MessagingTx {
     return toMessage(row);
   }
 
-  async messageByClientId(
-    channelId: string,
-    clientMessageId: string,
-  ): Promise<MessageRow | null> {
+  async messageByClientId(channelId: string, clientMessageId: string): Promise<MessageRow | null> {
     const row = await this.db.message.findUnique({
       where: { channelId_clientMessageId: { channelId, clientMessageId } },
       select: MESSAGE_SELECT,
@@ -292,11 +289,7 @@ class PrismaMessagingTx implements MessagingTx {
     return row ? toMessage(row) : null;
   }
 
-  async updateMessageBody(
-    messageId: string,
-    body: string,
-    editedAt: Date,
-  ): Promise<MessageRow> {
+  async updateMessageBody(messageId: string, body: string, editedAt: Date): Promise<MessageRow> {
     const row = await this.db.message.update({
       where: { id: messageId },
       data: { body, editedAt },

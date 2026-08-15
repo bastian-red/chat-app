@@ -81,8 +81,7 @@ const RAW_SEQ_COLLISION = {
 /** Shape 2, for the partial index that allows at most one owner per channel. */
 const RAW_SECOND_OWNER = {
   code: '23505',
-  message:
-    'duplicate key value violates unique constraint "channel_members_one_owner_per_channel"',
+  message: 'duplicate key value violates unique constraint "channel_members_one_owner_per_channel"',
   meta: { constraint: 'channel_members_one_owner_per_channel' },
 };
 
@@ -171,9 +170,7 @@ describe('constraint names are matched, never message text', () => {
     // Prisma cannot express "at most one row per channel where role = OWNER", so
     // this index exists only in the invariants migration and only ever arrives in
     // the raw form.
-    expect(isUniqueViolation(RAW_SECOND_OWNER, 'channel_members_one_owner_per_channel')).toBe(
-      true,
-    );
+    expect(isUniqueViolation(RAW_SECOND_OWNER, 'channel_members_one_owner_per_channel')).toBe(true);
   });
 
   it('recognises a CHECK violation in the raw form', () => {

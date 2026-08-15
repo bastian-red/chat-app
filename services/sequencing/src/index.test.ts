@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  isContiguousRun,
-  MAX_HELD,
-  missingRanges,
-  ReorderBuffer,
-  type Sequenced,
-} from './index';
+import { isContiguousRun, MAX_HELD, missingRanges, ReorderBuffer, type Sequenced } from './index';
 
 /**
  * The reorder buffer, tested the way the network actually behaves.
@@ -316,7 +310,10 @@ describe('properties, over pseudo-random interleavings', () => {
         delivered.push(...buffer.accept(message).delivered.map((entry) => entry.seq));
       }
 
-      expect(delivered.every((seq) => seq < missing), `seed ${seed}`).toBe(true);
+      expect(
+        delivered.every((seq) => seq < missing),
+        `seed ${seed}`,
+      ).toBe(true);
       expect(buffer.position, `seed ${seed}`).toBe(missing - 1);
 
       // And filling it releases the rest, in order, in one pass.

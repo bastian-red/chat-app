@@ -145,10 +145,7 @@ const ALLOWED: Readonly<Record<ChannelRole, ReadonlySet<ChannelOperation>>> = Ob
  * Making the caller narrow that first is how a null slips through as "truthy
  * enough" and grants everything.
  */
-export function can(
-  role: ChannelRole | null | undefined,
-  operation: ChannelOperation,
-): boolean {
+export function can(role: ChannelRole | null | undefined, operation: ChannelOperation): boolean {
   if (!role) return false;
   return ALLOWED[role]?.has(operation) ?? false;
 }
@@ -182,7 +179,6 @@ export function canActOnMessage(
   if (can(role, action === 'edit' ? 'message.edit.any' : 'message.delete.any')) return true;
   if (authorId === null) return false;
   return (
-    authorId === actorId &&
-    can(role, action === 'edit' ? 'message.edit.own' : 'message.delete.own')
+    authorId === actorId && can(role, action === 'edit' ? 'message.edit.own' : 'message.delete.own')
   );
 }

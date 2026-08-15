@@ -209,11 +209,7 @@ export interface MessagingRepository {
  * force both of them to match on it.
  */
 export type MessagingFailure =
-  | 'FORBIDDEN'
-  | 'NOT_FOUND'
-  | 'INVALID'
-  | 'CONFLICT'
-  | 'TOO_FAR_BEHIND';
+  'FORBIDDEN' | 'NOT_FOUND' | 'INVALID' | 'CONFLICT' | 'TOO_FAR_BEHIND';
 
 export class MessagingError extends Error {
   constructor(

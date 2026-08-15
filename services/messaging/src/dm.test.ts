@@ -85,8 +85,9 @@ describe('the sorting property, over many pairs', () => {
   it('order of arguments never changes the key', () => {
     // Deterministic generation, so a failure is reproducible from the index
     // rather than from a seed nobody recorded.
-    const ids = Array.from({ length: 60 }, (_, index) =>
-      `u${String(index).padStart(3, '0')}${'abcdefghij'[index % 10]!}`,
+    const ids = Array.from(
+      { length: 60 },
+      (_, index) => `u${String(index).padStart(3, '0')}${'abcdefghij'[index % 10]!}`,
     );
 
     for (let i = 0; i < ids.length; i += 1) {

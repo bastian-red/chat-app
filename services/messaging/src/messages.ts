@@ -309,7 +309,10 @@ async function requireMembership(
   tx: MessagingTx,
   channelId: string,
   userId: string,
-): Promise<{ member: NonNullable<Awaited<ReturnType<MessagingTx['member']>>>; members: Awaited<ReturnType<MessagingTx['members']>> }> {
+): Promise<{
+  member: NonNullable<Awaited<ReturnType<MessagingTx['member']>>>;
+  members: Awaited<ReturnType<MessagingTx['members']>>;
+}> {
   const channel = await tx.channel(channelId);
   if (!channel) throw new MessagingError('NOT_FOUND', 'That channel does not exist.');
 

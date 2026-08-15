@@ -78,7 +78,13 @@ describe('dispatch', () => {
     it('names the event, so a client with several in flight can tell them apart', async () => {
       const context = deps(1);
       await dispatch('message.send', {}, schema, () => Promise.resolve({}), context);
-      const refused = await dispatch('typing.start', {}, schema, () => Promise.resolve({}), context);
+      const refused = await dispatch(
+        'typing.start',
+        {},
+        schema,
+        () => Promise.resolve({}),
+        context,
+      );
 
       expect(refused).toMatchObject({ ok: false, error: { event: 'typing.start' } });
     });
