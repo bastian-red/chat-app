@@ -271,20 +271,3 @@ fails if those two and the source ever disagree. The ones worth knowing:
 | `SOCKET_EVENT_RATE_LIMIT` | 240     | events per minute per socket, in process memory rather than Redis: a socket lives on exactly one replica for its whole life                                           |
 | `UPLOAD_MAX_BYTES`        | 10 MB   | enforced by counting bytes **while streaming**, never by trusting `Content-Length`                                                                                    |
 | `PORT`                    | unset   | wins over `REALTIME_PORT` and `API_PORT`. It is what lets compose run a second gateway replica on 4101 out of the image the first one built                           |
-
-## Not deployed, on purpose
-
-This is one of thirteen portfolio projects, all published to GitHub and hosted nowhere.
-Free tiers do not stretch to thirteen deploys and paying for them buys nothing this
-repository does not already show. What survives instead is the evidence that the thing is
-operable: a real `/health` on both services that checks its dependencies rather than its own
-pulse, a `/status` page fed by the same endpoints that probes **both** gateway replicas, a
-Dockerfile per service, a compose file that brings the whole stack up including that second
-replica, and CI that runs every lane above on every push.
-
-The gateway's health check is the one worth reading. It does not ping Redis; it publishes a
-nonce on the Socket.io adapter's own two connections and waits to receive it back. A gateway
-whose subscriber has silently stopped receiving serves every socket it holds perfectly well
-and stops relaying to the other replica. From inside that process nothing is wrong, and
-from a user's seat half the people in the channel stopped talking. A liveness probe cannot
-see it.
